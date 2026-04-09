@@ -11,6 +11,15 @@ import os
 import glob
 
 class DocuBot:
+    # Minimum total score required for a snippet to be considered "meaningful"
+    RELEVANCE_THRESHOLD = 1
+
+    # Simple list of stop words to ignore during scoring
+    STOP_WORDS = {
+        "the", "a", "an", "is", "are", "to", "of", "for", "in", "on", "at", "by", "with", "and", "or",
+        "is", "there", "any", "mention"
+    }
+
     def __init__(self, docs_folder="docs", llm_client=None):
         """
         docs_folder: directory containing project documentation files
@@ -20,7 +29,10 @@ class DocuBot:
         self.llm_client = llm_client
 
         # Load documents into memory
-        self.documents = self.load_documents()  # List of (filename, text)
+        self.raw_documents = self.load_documents()  # List of (filename, text)
+        
+        # Split documents into paragraph chunks
+        self.documents = self.chunk_documents(self.raw_documents) # List of (filename, text)
 
         # Build a retrieval index (implemented in Phase 1)
         self.index = self.build_index(self.documents)
@@ -32,17 +44,39 @@ class DocuBot:
     def load_documents(self):
         """
         Loads all .md and .txt files inside docs_folder.
+        If the folder is empty or missing, it uses fallback docs from dataset.py.
         Returns a list of tuples: (filename, text)
         """
+        from dataset import load_fallback_documents
         docs = []
-        pattern = os.path.join(self.docs_folder, "*.*")
-        for path in glob.glob(pattern):
-            if path.endswith(".md") or path.endswith(".txt"):
-                with open(path, "r", encoding="utf8") as f:
-                    text = f.read()
-                filename = os.path.basename(path)
-                docs.append((filename, text))
+        
+        if os.path.exists(self.docs_folder):
+            pattern = os.path.join(self.docs_folder, "*.*")
+            for path in glob.glob(pattern):
+                if path.endswith(".md") or path.endswith(".txt"):
+                    with open(path, "r", encoding="utf8") as f:
+                        text = f.read()
+                    filename = os.path.basename(path)
+                    docs.append((filename, text))
+        
+        # If no documents were loaded from the folder, use fallback docs
+        if not docs:
+            docs = load_fallback_documents()
+            
         return docs
+
+    def chunk_documents(self, documents):
+        """
+        Split each document into paragraphs (delimited by double newlines).
+        Returns a list of tuples: (filename, paragraph_text)
+        """
+        chunks = []
+        for filename, text in documents:
+            # Split by one or more blank lines
+            paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+            for p in paragraphs:
+                chunks.append((filename, p))
+        return chunks
 
     # -----------------------------------------------------------
     # Index Construction (Phase 1)
@@ -50,49 +84,65 @@ class DocuBot:
 
     def build_index(self, documents):
         """
-        TODO (Phase 1):
-        Build a tiny inverted index mapping lowercase words to the documents
-        they appear in.
-
-        Example structure:
-        {
-            "token": ["AUTH.md", "API_REFERENCE.md"],
-            "database": ["DATABASE.md"]
-        }
-
-        Keep this simple: split on whitespace, lowercase tokens,
-        ignore punctuation if needed.
+        Build a tiny inverted index mapping lowercase words to the chunks
+        they appear in. Stores the integer index of the chunk in self.documents.
         """
         index = {}
-        # TODO: implement simple indexing
+        for i, (filename, text) in enumerate(documents):
+            # Simple tokenization: lowercase and split by whitespace
+            # Removing basic punctuation to improve match quality
+            words = text.lower().replace(".", "").replace(",", "").replace("!", "").replace("?", "").split()
+            for word in set(words):  # Use set for unique words per document
+                if word not in index:
+                    index[word] = []
+                index[word].append(i)
         return index
 
     # -----------------------------------------------------------
     # Scoring and Retrieval (Phase 1)
     # -----------------------------------------------------------
 
-    def score_document(self, query, text):
+    def score_chunk(self, query, text):
         """
-        TODO (Phase 1):
         Return a simple relevance score for how well the text matches the query.
-
-        Suggested baseline:
-        - Convert query into lowercase words
-        - Count how many appear in the text
-        - Return the count as the score
+        Ignore common stop words to ensure more meaningful matching.
         """
-        # TODO: implement scoring
-        return 0
+        query_words = [w for w in query.lower().split() if w not in self.STOP_WORDS]
+        doc_words = text.lower().replace(".", "").replace(",", "").replace("!", "").replace("?", "").split()
+        
+        score = 0
+        for word in query_words:
+            score += doc_words.count(word)
+        return score
 
     def retrieve(self, query, top_k=3):
         """
-        TODO (Phase 1):
         Use the index and scoring function to select top_k relevant document snippets.
+        Only returns snippets that meet the RELEVANCE_THRESHOLD.
 
         Return a list of (filename, text) sorted by score descending.
         """
-        results = []
-        # TODO: implement retrieval logic
+        query_words = query.lower().split()
+        candidate_indices = set()
+        
+        # Use index to narrow down candidates
+        for word in query_words:
+            if word in self.index:
+                candidate_indices.update(self.index[word])
+        
+        # Score candidates
+        scored_results = []
+        for i in candidate_indices:
+            filename, text = self.documents[i]
+            score = self.score_chunk(query, text)
+            if score >= self.RELEVANCE_THRESHOLD:
+                scored_results.append(((filename, text), score))
+        
+        # Sort by score descending
+        scored_results.sort(key=lambda x: x[1], reverse=True)
+        
+        # Extract the (filename, text) tuples
+        results = [item[0] for item in scored_results]
         return results[:top_k]
 
     # -----------------------------------------------------------

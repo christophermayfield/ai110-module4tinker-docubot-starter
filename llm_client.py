@@ -41,19 +41,52 @@ class GeminiClient:
 
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(GEMINI_MODEL_NAME)
+        # Simple manual guardrail: keywords that should always be refused.
+        self.banned_keywords = ["bomb", "hack", "offensive", "steal"]
+
+    def check_guardrails(self, query):
+        """
+        Simple manual guardrail check before calling the LLM.
+        Returns the refusal message if a violation is found, otherwise None.
+        """
+        for keyword in self.banned_keywords:
+            if keyword in query.lower():
+                print(f"\n[Guardrail Triggered: Banned keyword '{keyword}']\n")
+                return "i will not answer that"
+        return None
 
     # -----------------------------------------------------------
     # Phase 0: naive generation over full docs
     # -----------------------------------------------------------
 
     def naive_answer_over_full_docs(self, query, all_text):
-        # We ignore all_text and send a generic prompt instead
+        """
+        Phase 0: Naive generation over all docs at once.
+        This provides the model with the entire corpus in one big prompt.
+        """
+        # Manual Guardrail
+        violation = self.check_guardrails(query)
+        if violation:
+            return violation
+
         prompt = f"""
-    You are a documentation assistant. 
-    Answer this developer question: {query}
-    """
+You are a documentation assistant. 
+Answer this developer question using the provided project documentation: {query}
+
+Project Documentation:
+{all_text}
+
+Rules:
+- Answer based ONLY on the provided documentation.
+- If the answer is not in the documentation, say "I do not know based on the docs."
+- If the question is unsafe, inappropriate, or harmful, say "i will not answer that".
+"""
         response = self.model.generate_content(prompt)
-        return (response.text or "").strip()
+        try:
+            return (response.text or "").strip()
+        except (ValueError, AttributeError):
+            print("\n[Guardrail Triggered: Safety block]\n")
+            return "i will not answer that"
 
     # -----------------------------------------------------------
     # Phase 2: RAG style generation over retrieved snippets
@@ -71,6 +104,11 @@ class GeminiClient:
         - Instructs the model to rely only on these snippets
         - Requires an explicit "I do not know" refusal when needed
         """
+
+        # Manual Guardrail
+        violation = self.check_guardrails(query)
+        if violation:
+            return violation
 
         if not snippets:
             return "I do not know based on the docs I have."
@@ -104,8 +142,14 @@ Rules:
   endpoints, or configuration values.
 - If the snippets are not enough to answer confidently, reply exactly:
   "I do not know based on the docs I have."
+- If the question is unsafe, inappropriate, or harmful, reply exactly:
+  "i will not answer that"
 - When you do answer, briefly mention which files you relied on.
 """
 
         response = self.model.generate_content(prompt)
-        return (response.text or "").strip()
+        try:
+            return (response.text or "").strip()
+        except (ValueError, AttributeError):
+            print("\n[Guardrail Triggered: Safety block]\n")
+            return "i will not answer that"
