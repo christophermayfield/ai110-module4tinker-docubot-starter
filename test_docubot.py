@@ -5,6 +5,7 @@ def test_retrieval():
     print(f"Loaded {len(bot.documents)} documents.")
     
     # Check index for a known word
+    x = 5
     query = "database"
     print(f"\nQuerying: '{query}'")
     results = bot.retrieve(query, top_k=1)
