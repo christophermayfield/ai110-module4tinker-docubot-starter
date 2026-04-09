@@ -20,6 +20,9 @@ class DocuBot:
         "is", "there", "any", "mention"
     }
 
+    # Simple manual guardrail: keywords that should always be refused.
+    BANNED_KEYWORDS = ["bomb", "hack", "offensive", "steal"]
+
     def __init__(self, docs_folder="docs", llm_client=None):
         """
         docs_folder: directory containing project documentation files
@@ -145,6 +148,17 @@ class DocuBot:
         results = [item[0] for item in scored_results]
         return results[:top_k]
 
+    def check_guardrails(self, query):
+        """
+        Simple manual guardrail check.
+        Returns the refusal message if a violation is found, otherwise None.
+        """
+        for keyword in self.BANNED_KEYWORDS:
+            if keyword in query.lower():
+                print(f"\n[Guardrail Triggered: Banned keyword '{keyword}']\n")
+                return "i will not answer that"
+        return None
+
     # -----------------------------------------------------------
     # Answering Modes
     # -----------------------------------------------------------
@@ -154,6 +168,10 @@ class DocuBot:
         Phase 1 retrieval only mode.
         Returns raw snippets and filenames with no LLM involved.
         """
+        violation = self.check_guardrails(query)
+        if violation:
+            return violation
+
         snippets = self.retrieve(query, top_k=top_k)
 
         if not snippets:
@@ -175,6 +193,10 @@ class DocuBot:
             raise RuntimeError(
                 "RAG mode requires an LLM client. Provide a GeminiClient instance."
             )
+
+        violation = self.check_guardrails(query)
+        if violation:
+            return violation
 
         snippets = self.retrieve(query, top_k=top_k)
 

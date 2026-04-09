@@ -85,6 +85,15 @@ def run_naive_llm_mode(bot, has_llm):
     for query in queries:
         print("=" * 60)
         print(f"Question: {query}\n")
+        
+        # Manual Guardrail
+        violation = bot.check_guardrails(query)
+        if violation:
+            print("Answer:")
+            print(violation)
+            print()
+            continue
+
         answer = bot.llm_client.naive_answer_over_full_docs(query, all_text)
         print("Answer:")
         print(answer)

@@ -41,19 +41,6 @@ class GeminiClient:
 
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(GEMINI_MODEL_NAME)
-        # Simple manual guardrail: keywords that should always be refused.
-        self.banned_keywords = ["bomb", "hack", "offensive", "steal"]
-
-    def check_guardrails(self, query):
-        """
-        Simple manual guardrail check before calling the LLM.
-        Returns the refusal message if a violation is found, otherwise None.
-        """
-        for keyword in self.banned_keywords:
-            if keyword in query.lower():
-                print(f"\n[Guardrail Triggered: Banned keyword '{keyword}']\n")
-                return "i will not answer that"
-        return None
 
     # -----------------------------------------------------------
     # Phase 0: naive generation over full docs
@@ -64,11 +51,6 @@ class GeminiClient:
         Phase 0: Naive generation over all docs at once.
         This provides the model with the entire corpus in one big prompt.
         """
-        # Manual Guardrail
-        violation = self.check_guardrails(query)
-        if violation:
-            return violation
-
         prompt = f"""
 You are a documentation assistant. 
 Answer this developer question using the provided project documentation: {query}
@@ -104,11 +86,6 @@ Rules:
         - Instructs the model to rely only on these snippets
         - Requires an explicit "I do not know" refusal when needed
         """
-
-        # Manual Guardrail
-        violation = self.check_guardrails(query)
-        if violation:
-            return violation
 
         if not snippets:
             return "I do not know based on the docs I have."
