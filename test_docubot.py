@@ -1,4 +1,5 @@
 from docubot import DocuBot
+import time
 
 def test_retrieval():
     bot = DocuBot(docs_folder="docs")
